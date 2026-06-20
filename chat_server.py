@@ -8,9 +8,13 @@ import os
 import json
 import socket
 from pathlib import Path
+import database as db
 
 app = Flask(__name__, template_folder="templates_web", static_folder="static")
 app.config["TEMPLATES_AUTO_RELOAD"] = True
+
+# Inicializar base de datos al arrancar (gunicorn o directo)
+db.init_db()
 
 CONFIG_PATH = Path(__file__).parent / "config.json"
 
@@ -39,7 +43,6 @@ def responder_cliente(pregunta: str, historial: list) -> str:
     if not api_key:
         return "En este momento no puedo responder. Contactanos por teléfono."
 
-    import database as db
     productos = db.listar_productos()
     catalogo = "\n".join(
         f"- {p['nombre']}: ${p['precio']:.2f} | {'✅ Disponible' if p['stock'] > 0 else '❌ Sin stock'}"
@@ -102,7 +105,6 @@ def chat_cliente():
 
 @app.route("/productos")
 def productos_json():
-    import database as db
     prods = db.listar_productos()
     return jsonify(prods)
 
@@ -112,8 +114,6 @@ def health():
 
 
 if __name__ == "__main__":
-    import database as db
-    db.init_db()
     puerto = int(os.environ.get("PORT", 5001))
     ip = get_ip_local()
     print(f"\n{'='*50}")
