@@ -122,6 +122,7 @@ def guardar_producto(datos, pid=None):
         pid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
     conn.commit()
     conn.close()
+    sync_a_railway()
     return pid
 
 def ajustar_stock(producto_id, cantidad, tipo="ajuste", motivo="Manual"):
@@ -131,6 +132,7 @@ def ajustar_stock(producto_id, cantidad, tipo="ajuste", motivo="Manual"):
                  (producto_id, tipo, cantidad, motivo))
     conn.commit()
     conn.close()
+    sync_a_railway()
 
 def productos_stock_bajo():
     conn = get_conn()
@@ -200,6 +202,40 @@ def cambiar_estado_pedido(pedido_id, estado):
     conn.close()
 
 # ─── Estadísticas ─────────────────────────────────────────────────────────────
+
+def sync_a_railway():
+    """Envía todos los productos y categorías al servidor Railway."""
+    import threading, json
+    from pathlib import Path
+
+    config_path = Path(__file__).parent / "config.json"
+    try:
+        config = json.loads(config_path.read_text())
+        url_base = config.get("url_publica", "")
+        token = config.get("sync_token", "pg-sync-2024")
+    except Exception:
+        return
+
+    if not url_base:
+        return
+
+    def _enviar():
+        try:
+            import urllib.request
+            productos = listar_productos(solo_activos=False)
+            categorias = listar_categorias()
+            payload = json.dumps({"productos": productos, "categorias": categorias}).encode()
+            req = urllib.request.Request(
+                f"{url_base}/api/admin/sync",
+                data=payload,
+                headers={"Content-Type": "application/json", "X-Sync-Token": token},
+                method="POST"
+            )
+            urllib.request.urlopen(req, timeout=10)
+        except Exception:
+            pass  # Sync silencioso, no interrumpe el flujo
+
+    threading.Thread(target=_enviar, daemon=True).start()
 
 def estadisticas():
     conn = get_conn()

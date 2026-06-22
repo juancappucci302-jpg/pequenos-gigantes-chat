@@ -112,6 +112,48 @@ def productos_json():
 def health():
     return jsonify({"status": "ok"})
 
+@app.route("/api/admin/sync", methods=["POST"])
+def sync_productos():
+    token = request.headers.get("X-Sync-Token", "")
+    if token != os.environ.get("SYNC_TOKEN", "pg-sync-2024"):
+        return jsonify({"error": "no autorizado"}), 401
+
+    data = request.json or {}
+    productos = data.get("productos", [])
+    categorias = data.get("categorias", [])
+
+    conn = db.get_conn()
+    try:
+        # Sincronizar categorías
+        for cat in categorias:
+            existe = conn.execute("SELECT id FROM categorias WHERE id=?", (cat["id"],)).fetchone()
+            if existe:
+                conn.execute("UPDATE categorias SET nombre=? WHERE id=?", (cat["nombre"], cat["id"]))
+            else:
+                conn.execute("INSERT INTO categorias (id, nombre) VALUES (?,?)", (cat["id"], cat["nombre"]))
+
+        # Sincronizar productos
+        for p in productos:
+            existe = conn.execute("SELECT id FROM productos WHERE id=?", (p["id"],)).fetchone()
+            if existe:
+                conn.execute("""UPDATE productos SET nombre=?, descripcion=?, precio=?,
+                    stock=?, stock_minimo=?, categoria_id=?, activo=? WHERE id=?""",
+                    (p["nombre"], p.get("descripcion",""), p["precio"],
+                     p["stock"], p.get("stock_minimo",5), p.get("categoria_id"),
+                     p.get("activo",1), p["id"]))
+            else:
+                conn.execute("""INSERT INTO productos (id, nombre, descripcion, precio,
+                    stock, stock_minimo, categoria_id, activo) VALUES (?,?,?,?,?,?,?,?)""",
+                    (p["id"], p["nombre"], p.get("descripcion",""), p["precio"],
+                     p["stock"], p.get("stock_minimo",5), p.get("categoria_id"), p.get("activo",1)))
+        conn.commit()
+        return jsonify({"ok": True, "productos": len(productos)})
+    except Exception as e:
+        conn.rollback()
+        return jsonify({"error": str(e)}), 500
+    finally:
+        conn.close()
+
 
 if __name__ == "__main__":
     puerto = int(os.environ.get("PORT", 5001))
